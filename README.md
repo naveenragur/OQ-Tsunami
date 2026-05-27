@@ -20,7 +20,18 @@ provided to OpenQuake as imported GMFs (HDF5).
 
 You said you want to be able to modify OpenQuake code locally. Do this:
 
-### 1) Create env (conda)
+### Option A: Create env with uv (no conda)
+
+```bash
+# create a local virtual environment
+uv venv --python 3.11
+source .venv/bin/activate
+
+# ensure tooling exists in the venv
+uv pip install -U pip setuptools wheel
+```
+
+### Option B: Create env with conda
 
 ```bash
 conda create -n oq325 python=3.11 -y
@@ -40,6 +51,12 @@ git checkout v3.25.1
 pip install -e .
 ```
 
+> If you are using **uv**, you can also use:
+>
+> ```bash
+> uv pip install -e .
+> ```
+
 ### 3) Checkout this extension and install editable
 
 ```bash
@@ -49,6 +66,12 @@ cd oq-tsunami-ext
 git checkout tsunami-3.25-epistemic-rates
 pip install -e .
 ```
+
+> If you are using **uv**, you can also use:
+>
+> ```bash
+> uv pip install -e .
+> ```
 
 You now have:
 
