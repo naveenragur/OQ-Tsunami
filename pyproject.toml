@@ -1,7 +1,21 @@
 [build-system]
-requires = ["setuptools >= 69.0"]
+requires = ["setuptools>=69.0"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "oq-tsunami-ext"
+version = "0.1.0"
+description = "OpenQuake Engine extension for tsunami IMT and epistemic event-rate integration"
+requires-python = ">=3.9"
+dependencies = [
+  "openquake.engine==3.25.1",
+  "numpy",
+  "pandas",
+]
+
+[project.scripts]
+oq-tsunami = "oq_tsunami_ext.cli:main"
+
 [tool.ruff]
-line-length = 79
+line-length = 88
 target-version = "py39"
