@@ -7,8 +7,9 @@ name = "oq-tsunami-ext"
 version = "0.1.0"
 description = "OpenQuake Engine extension for tsunami IMT and epistemic event-rate integration"
 requires-python = ">=3.9"
+# NOTE: do NOT pin openquake.engine here. We want to support editable installs
+# of a local oq-engine checkout at v3.25.1.
 dependencies = [
-  "openquake.engine==3.25.1",
   "numpy",
   "pandas",
 ]
