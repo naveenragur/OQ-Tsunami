@@ -2,8 +2,8 @@ import argparse
 import os
 from pathlib import Path
 
-from oq_tsunami_ext import patch_imt
 from oq_tsunami_ext.integrate import integrate_epistemic_rates
+from oq_tsunami_ext.patcher import apply_patches, patch_status, verify_patches
 
 
 def _parse_rps(s: str):
@@ -11,10 +11,17 @@ def _parse_rps(s: str):
 
 
 def main(argv=None):
-    patch_imt()
-
     p = argparse.ArgumentParser(prog="oq-tsunami")
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    patch = sub.add_parser(
+        "patch",
+        help="Apply and verify the OQ-Tsunami patch set on an oq-engine checkout",
+    )
+    patch_sub = patch.add_subparsers(dest="patch_cmd", required=True)
+    for name in ("status", "apply", "verify"):
+        pp = patch_sub.add_parser(name)
+        pp.add_argument("--oq-engine", required=True, help="Path to oq-engine checkout")
 
     ip = sub.add_parser(
         "integrate",
@@ -38,8 +45,39 @@ def main(argv=None):
         default=os.environ.get("OQ_EXPORT_DIR", "/tmp"),
         help="Where to write CSV outputs",
     )
+    ip.add_argument("--plot", action="store_true", help="Also write PNG plots")
+    ip.add_argument(
+        "--plot-loss-ratio",
+        action="store_true",
+        help="Also write PNG plots with losses divided by total exposure value",
+    )
+    ip.add_argument(
+        "--total-exposure-value",
+        type=float,
+        help="Exposure denominator for loss-ratio plots; inferred when omitted",
+    )
+    ip.add_argument(
+        "--loss-type",
+        default="structural",
+        help="Loss type used to infer total exposure value",
+    )
 
     args = p.parse_args(argv)
+
+    if args.cmd == "patch":
+        oq_engine = Path(args.oq_engine)
+        if args.patch_cmd == "status":
+            statuses = patch_status(oq_engine)
+        elif args.patch_cmd == "apply":
+            statuses = apply_patches(oq_engine)
+        elif args.patch_cmd == "verify":
+            for line in verify_patches(oq_engine):
+                print(f"ok: {line}")
+            statuses = patch_status(oq_engine)
+        for status in statuses:
+            mark = "ok" if status.present else "missing"
+            print(f"{mark}: {status.name} ({status.detail})")
+        return 0
 
     if args.cmd == "integrate":
         export_dir = Path(args.export_dir)
@@ -50,4 +88,9 @@ def main(argv=None):
             investigation_time=args.investigation_time,
             return_periods=_parse_rps(args.return_periods),
             export_dir=export_dir,
+            plot=args.plot or args.plot_loss_ratio,
+            plot_loss_ratio=args.plot_loss_ratio,
+            total_exposure_value=args.total_exposure_value,
+            loss_type=args.loss_type,
         )
+        return 0

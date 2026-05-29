@@ -1,149 +1,81 @@
-# OQ-Tsunami extension (plugin)
+# OQ-Tsunami Patch Tool
 
-This repository (branch `tsunami-3.25-epistemic-rates`) is a **thin extension**
-package that you install *alongside* a local checkout of **GEM OpenQuake Engine
-v3.25.1**.
+`OQ-tsunami` is a lightweight patch/apply tool for running tsunami workflows
+through a native editable OpenQuake Engine checkout. It is not a separate risk
+engine: OpenQuake still runs `event_based_risk`, writes `risk_by_event`, and
+then calls a native `postrisk_func`.
 
-It adds:
+The current scope is imported-GMF tsunami risk with one tsunami IMT,
+`FLOWDEPTH`, plus AAL and EP metrics from epistemic annual event-rate samples.
 
-- A tsunami intensity-measure type (IMT) name: `TSU_DEPTH`
-- Fast probabilistic integration for **epistemic event rates** *without
-  recomputing losses*: given an OpenQuake run that produced `risk_by_event`,
-  compute **AAL + EP** for N epistemic rate samples.
+## Install
 
-This supports your workflow where tsunami hazard is precomputed externally and
-provided to OpenQuake as imported GMFs (HDF5).
-
----
-
-## Install + run with local oq-engine source (recommended)
-
-You said you want to be able to modify OpenQuake code locally. Do this:
-
-### Option A: Create env with uv (no conda)
+Install OpenQuake from an editable source checkout, then install this package in
+the same Python environment:
 
 ```bash
-# create a local virtual environment
-uv venv --python 3.11
-source .venv/bin/activate
+cd /path/to/oq-engine
+pip install -e .
 
-# ensure tooling exists in the venv
-uv pip install -U pip setuptools wheel
-```
-
-### Option B: Create env with conda
-
-```bash
-conda create -n oq325 python=3.11 -y
-conda activate oq325
-python -m pip install -U pip setuptools wheel
-```
-
-### 2) Checkout oq-engine v3.25.1 and install editable
-
-```bash
-git clone https://github.com/gem/oq-engine.git
-cd oq-engine
-git checkout v3.25.1
-
-# IMPORTANT: apply the TSU_DEPTH IMT patch (see below)
-# then install
+cd /path/to/oq-tsunami-ext
 pip install -e .
 ```
 
-> If you are using **uv**, you can also use:
->
-> ```bash
-> uv pip install -e .
-> ```
+## Patch Native OpenQuake
 
-### 3) Checkout this extension and install editable
+Apply the OQ-Tsunami patch set on top of the editable OpenQuake checkout:
 
 ```bash
-cd ..
-git clone https://github.com/naveenragur/OQ-Tsunami.git oq-tsunami-ext
-cd oq-tsunami-ext
-git checkout tsunami-3.25-epistemic-rates
-pip install -e .
+oq-tsunami patch status --oq-engine /path/to/oq-engine
+oq-tsunami patch apply --oq-engine /path/to/oq-engine
+oq-tsunami patch verify --oq-engine /path/to/oq-engine
 ```
 
-> If you are using **uv**, you can also use:
->
-> ```bash
-> uv pip install -e .
-> ```
+`apply` is idempotent and only adds missing changes. `verify` compiles the
+touched OpenQuake files and confirms that `FLOWDEPTH` and
+`openquake.calculators.postrisk.tsunami.main` are importable.
 
-You now have:
+The patch set is intentionally small and fork-friendly:
 
-- `oq` coming from your local `oq-engine` checkout (editable)
-- `oq-tsunami` coming from this extension package (editable)
+- `openquake/hazardlib/imt.py`: add `FLOWDEPTH()`.
+- `openquake/commonlib/oqvalidation.py`: allow `FLOWDEPTH` as a primary IMT for
+  imported-GMF risk functions.
+- `openquake/calculators/base.py`: for imported GMFs, log and continue when
+  exposure assets fall outside the hazard site collection.
+- `openquake/baselib/workerpool.py`: wait up to 60 seconds for Slurm
+  `jobs.pik` visibility and use `sys.executable`.
+- `openquake/calculators/postrisk/tsunami.py`: expose `tsunami.main`.
+- `openquake/calculators/postrisk/__init__.py`: import the tsunami postrisk
+  module.
 
----
+Do not use `secondary_perils = tsunami`, `multi_peril_file`, or a fake
+secondary-peril class for this workflow.
 
-## Patch GEM oq-engine (v3.25.1) to add TSU_DEPTH IMT
+## Native OpenQuake Workflow
 
-OpenQuake hazardlib validates IMT names. To use `imt="TSU_DEPTH"` in
-vulnerability models and in job configs, you must add a new IMT.
+Use imported tsunami GMFs and the native OpenQuake postrisk hook:
 
-In `oq-engine` repo (tag `v3.25.1`), edit:
+```ini
+[general]
+calculation_mode = event_based_risk
 
-- `openquake/hazardlib/imt.py`
+[hazard sites]
+gmfs_file = tsunami_hazard.hdf5
 
-Add:
-
-```python
-# tsunami IMT
-
-def TSU_DEPTH():
-    """Tsunami inundation depth (units as provided by the user, typically cm or m).
-
-    This is intended for imported-GMF risk workflows, not for GMPE-based hazard.
-    """
-    return IMT('TSU_DEPTH')
+[risk_calculation]
+aggregate_by = Construction
+return_periods = 10 50 100 250 500
+postrisk_func = tsunami.main
+postrisk_args = {
+  'event_rates_file': 'event_rates.csv',
+  'plot': True,
+  'plot_loss_ratio': True
+  }
 ```
 
-and ensure it is included in globals (just defining the function is enough).
-
-After patching:
-
-```bash
-pip install -e .
-```
-
----
-
-## Workflow
-
-### 1) Run OQ event-based risk from imported GMFs
-
-Your `job.ini` should:
-
-- `calculation_mode = event_based_risk`
-- `gmfs_file = tsunami_depth_gmfs.hdf5`
-- vulnerability model uses `imt="TSU_DEPTH"`
-
-Then run:
-
-```bash
-oq engine --run path/to/job.ini
-```
-
-Find calc id:
-
-```bash
-oq engine --list-calculations
-# or
-# oq db find -
-```
-
-### 2) Integrate epistemic event rates (AAL + EP)
-
-Prepare a **wide** CSV file with:
-
-- first column: `eid`
-- remaining columns: one column per epistemic sample (annual rate in 1/yr)
-
-Example:
+The vulnerability model should use `imt="FLOWDEPTH"`. The event-rates CSV must
+be wide format with `eid` as the first column and one annual-rate column per
+epistemic sample:
 
 ```csv
 eid,s0,s1,s2
@@ -151,7 +83,34 @@ eid,s0,s1,s2
 1,0.0001,0.0002,0.00015
 ```
 
-Run integration:
+`tsunami.main(dstore, event_rates_file, plot=True, export_dir=None)` reads
+native OQ `risk_by_event`, computes metrics using annual event rates, stores
+them in the datastore, and exports CSV/PNG outputs.
+
+Datastore outputs:
+
+- `tsunami_aal_sample`
+- `tsunami_aal_stats`
+- `tsunami_aggcurves_sample`
+- `tsunami_aggcurves_stats`
+
+CSV outputs:
+
+- `tsunami_aal_sample.csv`
+- `tsunami_aal_stats.csv`
+- `tsunami_aggcurves_sample.csv`
+- `tsunami_aggcurves_stats.csv`
+
+PNG outputs when `plot=true`:
+
+- `tsunami_aal_by_aggregation.png`
+- `tsunami_ep_loss_by_return_period.png`
+- `tsunami_aal_loss_ratio_by_aggregation.png` when `plot_loss_ratio=true`
+- `tsunami_ep_loss_ratio_by_return_period.png` when `plot_loss_ratio=true`
+
+## Legacy Manual Integration
+
+The original manual post-processing command remains available:
 
 ```bash
 oq-tsunami integrate \
@@ -159,20 +118,25 @@ oq-tsunami integrate \
   --event-rates path/to/event_rates.csv \
   --investigation-time 1.0 \
   --return-periods 10,50,100,250,500 \
-  --export-dir /tmp
+  --export-dir /tmp \
+  --plot \
+  --plot-loss-ratio
 ```
 
-Outputs:
+This reads `risk_by_event` from an existing calculation and writes the same CSV
+and optional PNG products outside the OpenQuake postrisk flow.
 
-- `/tmp/aals_epistemic.csv`
-- `/tmp/epcurves_epistemic.csv`
-- `/tmp/aals_stats.csv` (mean/p05/p50/p95)
-- `/tmp/epcurves_stats.csv` (mean/p05/p50/p95)
+## Notes
 
----
-
-## Notes / assumptions
-
-- The integration uses a Poisson model for exceedance:
-  ν(L)=Σ λᵢ I(lossᵢ>L), PoE=1-exp(-νT).
-- We only implement AAL + EP in this version. AEP/OEP can be added later.
+- Event-rate columns are annual rates.
+- AAL is computed as `sum(loss * annual_rate)` for each epistemic sample.
+- Stats tables report `mean`, `p05`, `p16`, `p50`, `p84`, and `p95`
+  across epistemic samples.
+- Loss-ratio plots divide loss by total exposure value. The native postrisk path
+  infers this from `agg_values` when possible; pass `total_exposure_value` in
+  `postrisk_args` or `--total-exposure-value` in the CLI to override it.
+- EP losses are derived from weighted exceedance-rate tables and reported at the
+  configured return periods.
+- The postrisk implementation is based on `risk_by_event`, not tsunami hazard
+  files, so it can later support coupled shaking and tsunami losses from a
+  single event-based run.

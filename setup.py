@@ -22,11 +22,12 @@ def read_readme():
 setup(
     name="oq-tsunami-ext",
     version="0.1.0",
-    description="OpenQuake Engine tsunami extension: TSU_DEPTH + epistemic-rate integration (AAL+EP)",
+    description="OQ-Tsunami patch tool for native OpenQuake tsunami risk workflows",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
     packages=find_packages(exclude=("tests", "tests.*")),
     install_requires=[
+        "matplotlib",
         "numpy",
         "pandas",
     ],
